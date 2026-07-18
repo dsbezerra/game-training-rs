@@ -1,22 +1,18 @@
 use raylib::prelude::*;
 
 mod gt;
+mod launcher;
 
 fn main() {
     // Initialization
     //--------------------------------------------------------------------------------------
 
-    let mut app_state = gt::AppState::default();
-    app_state.window_dimensions.x = 1920.0 * 0.9;
-    app_state.window_dimensions.y = 1080.0 * 0.9;
-
     let (mut rl, thread) = raylib::init()
-        .size(
-            app_state.window_dimensions.x as i32,
-            app_state.window_dimensions.y as i32,
-        )
+        .size((1920.0 * 0.9) as i32, (1080.0 * 0.9) as i32)
         .title("Game Training")
         .build();
+
+    let mut app_state = gt::AppState::new(&mut rl, &thread);
 
     rl.set_target_fps(60);
 

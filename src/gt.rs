@@ -1,15 +1,20 @@
 use raylib::prelude::*;
 
-use crate::gt::AppMode::{PlayingGame, SelectingGame};
+pub const VIRTUAL_WIDTH: f32 = 1920.0;
+pub const VIRTUAL_HEIGHT: f32 = 1080.0;
+
+use crate::{
+    gt::AppMode::{Launcher, PlayingGame},
+    launcher::LauncherMenu,
+};
 
 #[derive(Default)]
 enum AppMode {
     #[default]
-    SelectingGame,
+    Launcher,
     PlayingGame,
 }
 
-#[derive(Default)]
 pub struct AppState {
     pub window_dimensions: Vector2,
 
@@ -17,37 +22,34 @@ pub struct AppState {
     current_mode: AppMode,
     pub asked_to_quit: bool,
     quit_was_selected: bool,
-    game_menu_arts: Vec<Texture2D>,
-    game_title_font: Option<Font>,
-}
 
-// Move to utility
-fn load_font(
-    rl: &mut RaylibHandle,
-    thread: &RaylibThread,
-    font_path: &str,
-    font_size: i32,
-) -> Option<Font> {
-    return Some(
-        rl.load_font_ex(&thread, font_path, font_size, None)
-            .expect("font load"),
-    );
+    launcher: LauncherMenu,
 }
 
 impl AppState {
-    pub fn game_frame_begin(&mut self, d: &mut RaylibDrawHandle) {
+    pub fn new(rl: &mut RaylibHandle, thread: &RaylibThread) -> Self {
+        return Self {
+            window_dimensions: Vector2::new(
+                rl.get_screen_width() as f32,
+                rl.get_screen_height() as f32,
+            ),
+            initialized: false,
+            current_mode: Launcher,
+            asked_to_quit: false,
+            quit_was_selected: false,
+            launcher: LauncherMenu::new(rl, thread),
+        };
+    }
+
+    pub fn game_frame_begin(&mut self, d: &mut RaylibTextureMode<'_, '_, RaylibHandle>) {
         d.clear_background(Color::BLACK);
     }
 
     pub fn game_update_and_render(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
         if !self.initialized {
             self.initialized = true;
-            self.current_mode = SelectingGame;
-            self.game_title_font = load_font(rl, &thread, "data/fonts/Inconsolata-Bold.ttf", 32);
-            self.game_menu_arts = self.load_menu_arts(rl, thread);
             // TODO(#2): Menu title font
             // TODO(#3): Menu item font
-            // TODO(#4): Load menu arts
             // TODO(#5): Hotloader thing
         }
 
@@ -63,85 +65,74 @@ impl AppState {
         }
 
         match self.current_mode {
-            SelectingGame => {
-                // TODO(#6): Update selecting mode
-                if rl.is_key_down(KeyboardKey::KEY_G) {
-                    self.current_mode = PlayingGame;
-                }
+            Launcher => {
+                self.launcher.update(rl);
             }
             PlayingGame => {
                 // TODO(#7): Delegate to update_and_render fn of current game
                 if rl.is_key_down(KeyboardKey::KEY_S) {
-                    self.current_mode = SelectingGame;
+                    self.current_mode = Launcher;
                 }
             }
         }
 
+        let mut target = rl
+            .load_render_texture(&thread, VIRTUAL_WIDTH as u32, VIRTUAL_HEIGHT as u32)
+            .expect("Failed to create render texture");
+        // --- DRAW TO TEXTURE ---
+        {
+            let mut d = rl.begin_texture_mode(&thread, &mut target);
+            self.game_frame_begin(&mut d);
+
+            if self.quit_was_selected {
+                d.draw_text("Drawing quit menu", 190, 200, 20, Color::LIGHTGRAY);
+            } else {
+                match self.current_mode {
+                    Launcher => {
+                        self.launcher.draw(&mut d);
+                    }
+                    PlayingGame => {
+                        // TODO(#7): Delegate to update_and_render fn of current game
+                        d.draw_text("PlayingGame", 190, 200, 20, Color::LIGHTGRAY);
+                    }
+                }
+            }
+        }
+
+        // --- DRAW TO SCREEN ---
         let mut d = rl.begin_drawing(&thread);
-        self.game_frame_begin(&mut d);
+        d.clear_background(Color::BLACK);
 
-        if self.quit_was_selected {
-            d.draw_text("Drawing quit menu", 190, 200, 20, Color::LIGHTGRAY);
-        } else {
-            match self.current_mode {
-                SelectingGame => {
-                    self.render_selecting_game(&mut d);
-                }
-                PlayingGame => {
-                    // TODO(#7): Delegate to update_and_render fn of current game
-                    d.draw_text("PlayingGame", 190, 200, 20, Color::LIGHTGRAY);
-                }
-            }
-        }
-    }
+        let virtual_width = VIRTUAL_WIDTH;
+        let virtual_height = VIRTUAL_HEIGHT;
 
-    fn render_selecting_game(&mut self, d: &mut RaylibDrawHandle) {
-        let font = self.game_title_font.as_ref().unwrap();
+        let screen_width = self.window_dimensions.x as f32;
+        let screen_height = self.window_dimensions.y as f32;
 
-        let mut y_pos = 0.0;
-        // App name
-        {
-            let text = "Game Training";
-            let text_width = font.measure_text(text, font.base_size() as f32, 2.0);
+        let scale =
+            (screen_width / virtual_width as f32).min(screen_height / virtual_height as f32);
 
-            y_pos += 100.0;
+        let dest_rec = Rectangle::new(
+            (screen_width as f32 - (virtual_width as f32 * scale)) * 0.5,
+            (screen_height as f32 - (virtual_height as f32 * scale)) * 0.5,
+            virtual_width as f32 * scale,
+            virtual_height as f32 * scale,
+        );
 
-            let target_center_x = d.get_screen_width() as f32 / 2.0;
-            let text_pos = Vector2::new(target_center_x - (text_width.x / 2.0), y_pos);
-            d.draw_text_ex(
-                &font,
-                text,
-                text_pos,
-                font.base_size() as f32,
-                2.0,
-                Color::WHITE,
-            );
-        }
+        let source_rec = Rectangle::new(
+            0.0,
+            0.0,
+            target.texture.width as f32,
+            -target.texture.height as f32,
+        );
 
-        {
-            y_pos += 100.0;
-
-            let selection_height = self.window_dimensions.y - y_pos - 100.0;
-            let selection_width = selection_height * 9.0 / 16.0;
-            // Draw only the first menu art for now.
-            let texture = &self.game_menu_arts[0];
-            let x = selection_width;
-            d.draw_texture_pro(
-                texture,
-                Rectangle::new(0.0, 0.0, texture.width as f32, texture.height as f32),
-                Rectangle::new(x, y_pos, selection_width, selection_height),
-                Vector2::new(0.0, 0.0),
-                0.0,
-                Color::WHITE,
-            );
-        }
-    }
-
-    fn load_menu_arts(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) -> Vec<Texture2D> {
-        // For each game load textures. For now loading a single one.
-        let image = Image::load_image("data/menu_arts/dodger.png").unwrap();
-        let result = vec![rl.load_texture_from_image(thread, &image).unwrap()];
-        drop(image);
-        return result;
+        d.draw_texture_pro(
+            &target,
+            source_rec,
+            dest_rec,
+            Vector2::zero(),
+            0.0,
+            Color::WHITE,
+        );
     }
 }
