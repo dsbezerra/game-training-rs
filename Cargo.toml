@@ -8,4 +8,4 @@ raylib = "6.0"
 
 [[bin]]
 name = "game-training"
-path = "main.rs"
+path = "src/main.rs"
